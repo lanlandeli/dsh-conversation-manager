@@ -2,7 +2,7 @@
 
 ## 支持版本
 
-安全修复适用于最新发布的 `0.2.x` 版本。经过验证的 Harness 基线记录在 [兼容性说明](./docs/COMPATIBILITY.md) 中。
+安全修复适用于最新发布的 `0.1.x` 版本。经过验证的 Harness 基线记录在 [兼容性说明](./docs/COMPATIBILITY.md) 中。
 
 ## 报告安全问题
 
