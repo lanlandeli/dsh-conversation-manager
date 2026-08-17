@@ -28,6 +28,7 @@ const required = [
   'package.json', 'README.md', 'README.en.md', 'LICENSE', 'CHANGELOG.md',
   'CONTRIBUTING.md', 'PRIVACY.md', 'SECURITY.md', 'docs/COMPATIBILITY.md',
   'cordis.patch.yml', 'lib/index.js', 'lib/index.d.ts', 'lib/client.js', 'lib/client.js.map',
+  'assets/session-manager-light.png', 'assets/session-manager-dark.png', 'assets/session-manager-demo.gif',
 ]
 for (const file of required) {
   if (!files.has(file)) throw new Error(`Published package is missing ${file}`)

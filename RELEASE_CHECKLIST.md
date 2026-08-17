@@ -4,7 +4,7 @@
 
 - [x] npm 包名确定为 `dsh-conversation-manager`；2026-08-17 查询 npm 官方 registry 时尚未被占用。
 - [ ] 确认 `package.json` 中的 `name`、`repository`、`homepage`、`bugs` 与最终公开仓库完全一致。
-- [ ] 准备一张最新版浅色界面截图；如有条件，再补充深色截图或短 GIF。
+- [x] 使用纯演示数据生成最新版浅色、深色截图与短 GIF，确保不包含真实会话和本机路径。
 - [ ] 在 GitHub 仓库设置中启用私密漏洞报告。
 - [ ] 在 npm 包设置中配置 Trusted Publisher：仓库 `lanlandeli/dsh-conversation-manager`、工作流 `publish.yml`、Environment `npm`。
 

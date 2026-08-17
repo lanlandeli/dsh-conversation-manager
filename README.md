@@ -27,6 +27,28 @@ dsh plugin --profile web update dsh-conversation-manager
 dsh plugin --profile web remove dsh-conversation-manager
 ```
 
+## 🎬 效果演示
+
+> 以下素材使用纯演示数据生成，不包含真实会话、路径或文件信息。
+
+![会话管理效果演示](./assets/session-manager-demo.gif)
+
+## 🖼️ 界面截图
+
+<details>
+<summary>查看浅色主题</summary>
+
+![浅色主题](./assets/session-manager-light.png)
+
+</details>
+
+<details>
+<summary>查看深色主题</summary>
+
+![深色主题](./assets/session-manager-dark.png)
+
+</details>
+
 ## ✨ 功能概览
 
 | 模块 | 说明 |

@@ -8,3 +8,4 @@ coverage/
 .DS_Store
 .tmp-*/
 .release/
+.capture-tools/

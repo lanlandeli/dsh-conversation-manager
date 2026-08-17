@@ -27,6 +27,28 @@ dsh plugin --profile web update dsh-conversation-manager
 dsh plugin --profile web remove dsh-conversation-manager
 ```
 
+## Demo
+
+> These assets use synthetic demo data and contain no real sessions, paths, or file information.
+
+![Session manager demo](./assets/session-manager-demo.gif)
+
+## Screenshots
+
+<details>
+<summary>View light theme</summary>
+
+![Light theme](./assets/session-manager-light.png)
+
+</details>
+
+<details>
+<summary>View dark theme</summary>
+
+![Dark theme](./assets/session-manager-dark.png)
+
+</details>
+
 ## Features
 
 | Module | Description |

@@ -116,6 +116,8 @@
     "CONTRIBUTING.md",
     "PRIVACY.md",
     "SECURITY.md",
-    "docs/COMPATIBILITY.md"
+    "docs/COMPATIBILITY.md",
+    "assets/*.png",
+    "assets/*.gif"
   ]
 }
