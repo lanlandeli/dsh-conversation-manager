@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -31,7 +31,8 @@ describe('path security', () => {
     created.push(root)
     await mkdir(join(root, 'out'))
     await writeFile(join(root, 'out', 'result.txt'), 'ok')
-    await expect(resolveSafeRegularFile('out/result.txt', root, [root])).resolves.toBe(join(root, 'out', 'result.txt'))
+    const expected = await realpath(join(root, 'out', 'result.txt'))
+    await expect(resolveSafeRegularFile('out/result.txt', root, [root])).resolves.toBe(expected)
   })
 
   it('rejects symbolic-link deletion targets when supported by the platform', async () => {
@@ -47,7 +48,8 @@ describe('path security', () => {
     const outside = await mkdtemp(join(tmpdir(), 'archived-outside-'))
     created.push(root, outside)
     await mkdir(join(root, 'session'))
-    await expect(resolveSafeArtifactDirectory(root, join(root, 'session'))).resolves.toBe(join(root, 'session'))
+    const expected = await realpath(join(root, 'session'))
+    await expect(resolveSafeArtifactDirectory(root, join(root, 'session'))).resolves.toBe(expected)
     await expect(resolveSafeArtifactDirectory(root, outside)).rejects.toMatchObject({ code: 'outside-session-root' })
   })
 
@@ -58,7 +60,8 @@ describe('path security', () => {
     await mkdir(session, { recursive: true })
     const artifact = join(session, 'session.jsonl')
     await writeFile(artifact, '{}')
-    await expect(resolveSafeArtifactContainer(root, artifact)).resolves.toBe(session)
-    await expect(resolveSafeArtifactContainer(root, session)).resolves.toBe(session)
+    const expected = await realpath(session)
+    await expect(resolveSafeArtifactContainer(root, artifact)).resolves.toBe(expected)
+    await expect(resolveSafeArtifactContainer(root, session)).resolves.toBe(expected)
   })
 })
