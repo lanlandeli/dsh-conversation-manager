@@ -12,7 +12,7 @@
 
 `dsh-conversation-manager` is a session manager for the DeepSeek Harness Web UI. It brings active and archived conversations, subagent relationships, activity summaries, and local output files into one interface, with explicit confirmation and filesystem boundaries around permanent deletion.
 
-The plugin integrates through Harness services and UI slots. It does not patch official npm packages or the Web UI DOM, and it sends no telemetry to the plugin author.
+The plugin integrates through Harness services and UI slots without patching official npm packages or the Web UI DOM. Session data is read and processed locally.
 
 ```sh
 dsh plugin --profile web add dsh-conversation-manager
@@ -58,7 +58,6 @@ dsh plugin --profile web remove dsh-conversation-manager
 | **Search and grouping** | Search by title or session ID and switch between a flat list and workspace groups |
 | **Subagent relationships** | Keep subagents hidden by default and reveal them under their parent, including nested relationships and search results |
 | **Session details** | Inspect disk usage, last update, message and tool counts, web fetches, and parent/child relationships |
-| **Multiple open cards** | Keep any number of detail cards open, with independent loading, closing animation, and file selection state |
 | **Record directory** | Open the exact session record directory used for the displayed disk-size calculation |
 | **Output cleanup** | Delete only regular files recorded as outputs of that session and located inside a registered workspace |
 | **Chinese and English UI** | Follow the Harness language setting automatically |

@@ -1,6 +1,6 @@
 # 隐私说明与数据流
 
-`dsh-conversation-manager` 在运行 DeepSeek Harness 的同一台设备上处理会话数据，不向插件作者或第三方服务发送遥测。
+`dsh-conversation-manager` 的数据读取和处理都在运行 DeepSeek Harness 的本机完成。插件本身不连接外部服务。
 
 ## 读取的数据
 
