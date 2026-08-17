@@ -1,0 +1,4 @@
+# dsh-conversation-manager bundle patch: mounts the plugin as one cordis loader entry.
+- insert:
+    - id: dsh-conversation-manager
+      name: 'dsh-conversation-manager'
