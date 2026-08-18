@@ -1,6 +1,6 @@
 {
   "name": "dsh-conversation-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A safe, accessible session manager for DeepSeek Harness with archive controls, activity details, lineage, and output-file cleanup.",
   "author": "lanlandeli",
   "repository": {
