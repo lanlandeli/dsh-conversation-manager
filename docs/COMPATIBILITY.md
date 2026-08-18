@@ -2,7 +2,7 @@
 
 | 组件 | 已验证环境 | 声明范围 |
 | --- | --- | --- |
-| DeepSeek Harness / dsh | `0.1.0-rc.6` | `0.1.x` 对等接口 |
+| DeepSeek Harness / dsh | `0.1.0-rc.7` | `0.1.x` 对等接口 |
 | Node.js | `22.19+`、`24+` | `^22.19.0 || >=24.0.0` |
 | Web UI | 官方 `web` Profile | 必需 |
 | 操作系统 | Windows | 已验证；目录打开实现同时提供 macOS/Linux 命令适配 |
@@ -12,7 +12,7 @@
 
 DeepSeek Harness 仍处于开发者预览阶段，后续版本可能包含不兼容改动。本插件依赖以下 Harness 能力：
 
-- Host：会话存储、会话持久化、工作区注册表、代理状态与 Web Server；
+- Host：会话存储、会话持久化、公开 Session Query、工作区注册表、代理状态与 Web Server；
 - Client：会话、工作区、Locale、UI primitives 和 `settings.section` 插槽；
 - 所有 `@deepseek-ai/*` 运行时模块均声明为对等依赖，复用 Profile 提供的实例；
 - 不查询、监听或修改 Harness 所有的 DOM 节点。

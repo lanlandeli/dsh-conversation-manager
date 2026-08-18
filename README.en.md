@@ -81,11 +81,11 @@ An output file can be deleted only when all of these conditions hold:
 3. The target is a regular file, not a directory or symbolic link.
 4. Its resolved real path is strictly inside a registered Harness workspace and is not the workspace root.
 
-Session record directories are likewise fenced inside `DSH_HOME/sessions`. The browser API accepts same-origin POST requests on loopback hosts only and limits request-body size. See the [security policy](./SECURITY.md) and [privacy notice](./PRIVACY.md).
+Session record directories come from Harness persistence's public `locate(meta)` contract; the plugin does not derive or assume a JSONL layout. The browser API accepts same-origin POST requests on loopback hosts only and limits request-body size. See the [security policy](./SECURITY.md) and [privacy notice](./PRIVACY.md).
 
 ## Compatibility
 
-The verified baseline is DeepSeek Harness `0.1.0-rc.6`, Node.js `22.19+` or `24+`, and the official Web profile. The interface supports light and dark themes and desktop wrappers that load the same-origin Web UI.
+The verified baseline is DeepSeek Harness `0.1.0-rc.7`, Node.js `22.19+` or `24+`, and the official Web profile. The interface supports light and dark themes and desktop wrappers that load the same-origin Web UI.
 
 Harness is evolving rapidly. Other versions may work but are outside the current verified range. See [Compatibility](./docs/COMPATIBILITY.md).
 

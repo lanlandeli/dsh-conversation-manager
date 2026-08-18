@@ -81,11 +81,11 @@ dsh plugin --profile web remove dsh-conversation-manager
 3. 目标是普通文件，不是目录或符号链接；
 4. 解析后的真实路径严格位于 Harness 已注册的工作区内部，且不能是工作区根目录。
 
-会话记录目录同样会被限制在 `DSH_HOME/sessions` 内。浏览器接口只接受本机回环地址上的同源 POST 请求，并限制请求体大小。详细信息见 [安全策略](./SECURITY.md) 和 [隐私说明](./PRIVACY.md)。
+会话记录目录由 Harness 官方 persistence 的 `locate(meta)` 接口提供；插件不再推导或假设 JSONL 目录结构。浏览器接口只接受本机回环地址上的同源 POST 请求，并限制请求体大小。详细信息见 [安全策略](./SECURITY.md) 和 [隐私说明](./PRIVACY.md)。
 
 ## 🧩 兼容性
 
-目前已在 DeepSeek Harness `0.1.0-rc.6`、Node.js `22.19+` 和 `24+`、官方 Web Profile 上验证。界面支持浅色、深色主题以及加载同源 Web UI 的桌面封装。
+目前已在 DeepSeek Harness `0.1.0-rc.7`、Node.js `22.19+` 和 `24+`、官方 Web Profile 上验证。界面支持浅色、深色主题以及加载同源 Web UI 的桌面封装。
 
 Harness 仍处于快速迭代阶段。其他版本可能能够运行，但不属于当前验证范围；详见 [兼容性说明](./docs/COMPATIBILITY.md)。
 

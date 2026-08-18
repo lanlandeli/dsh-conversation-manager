@@ -88,3 +88,12 @@ export async function resolveSafeArtifactContainer(sessionRoot: string, artifact
   }
   return container
 }
+
+/** Resolve a backend-owned artifact returned by SessionPersistence.locate(). */
+export async function resolveLocatedArtifactContainer(artifactPath: string): Promise<string> {
+  const canonicalArtifact = await realpath(resolve(artifactPath))
+  const info = await lstat(canonicalArtifact)
+  const container = info.isDirectory() ? canonicalArtifact : info.isFile() ? dirname(canonicalArtifact) : undefined
+  if (container === undefined) throw new RequestError('会话记录目标不是文件或目录', 409, 'invalid-session-artifact')
+  return container
+}

@@ -1,10 +1,7 @@
-// DSH's client stores are pre-1.0 and do not yet expose a stable shared state
-// type. This module keeps the runtime boundary defensive while the pure models
-// and batch helpers remain strictly typed and unit tested.
-// @ts-nocheck
-
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ClientContext, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
   Button,
   IconBranchOutline16,
@@ -12,6 +9,8 @@ import {
   IconTriangleRightFill14,
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsRuntime, SnapshotSelectorHook, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { runBatched } from './batch.js'
 import { en, NS, zh } from './i18n.js'
 import { descendantIds, directChildCounts, flattenSessionRows } from './model.js'
@@ -19,6 +18,22 @@ import type { SessionRow } from './model.js'
 import { styles } from './styles.js'
 
 export const inject = ['slots', 'locale', 'sessions', 'workspaces']
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    'conversation-manager': keyof typeof zh
+  }
+}
+
+type Translate = TranslateNS<'conversation-manager'>
+type SessionState = SessionListState
+type WorkspaceState = WorkspaceListState
+type SettingsSectionProps = PropsRuntime<'settings.section'> & {
+  refresh: () => Promise<void>
+}
+type SettingsSectionRenderProps = SettingsSectionProps & { t: Translate }
+type UseSessions = SnapshotSelectorHook<SessionState>
+type UseWorkspaces = SnapshotSelectorHook<WorkspaceState>
 
 const API_TIMEOUT_MS = 15_000
 const DETAILS_CACHE_LIMIT = 50
@@ -102,6 +117,18 @@ function isSubagentSession(session: any): boolean {
   return session?.origin === 'subagent' || session?.header?.origin === 'subagent'
 }
 
+function sessionRow(id: string, session: any, current: boolean, fallbackId = id): SessionRow {
+  const parentId = sessionParentIdOf(session)
+  return {
+    id,
+    title: sessionTitleOf(session, fallbackId),
+    updatedAt: session?.updatedAt,
+    current,
+    subagent: isSubagentSession(session),
+    ...(parentId === undefined ? {} : { parentId }),
+  }
+}
+
 function timeLabel(updatedAt: number, now: number, t: (key: string) => string): string {
   const diff = Math.max(0, now - updatedAt)
   const minute = 60_000
@@ -149,12 +176,12 @@ function SessionRowView({ row, selected, expanded, expandedParent, childCount, n
   </div>
 }
 
-function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any): ReactNode {
-  const sessions = useSessions((state: any) => state)
-  const workspaceState = useWorkspaces((state: any) => state)
-  const archivedIds: string[] = workspaceState?.archivedSessionIds ?? []
-  const workspaceItems: any[] = workspaceState?.items ?? []
-  const byId = sessions?.byId ?? {}
+function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: SettingsSectionRenderProps): ReactNode {
+  const sessions = useSessions((state: SessionState) => state)
+  const workspaceState = useWorkspaces((state: WorkspaceState) => state)
+  const archivedIds: readonly string[] = workspaceState?.archivedSessionIds ?? []
+  const workspaceItems: readonly any[] = workspaceState?.items ?? []
+  const byId: Record<string, any> = sessions?.byId as Record<string, any> ?? {}
   const current = sessions?.current
   const [tick, setTick] = useState(0)
   useEffect(() => { const timer = window.setInterval(() => setTick(value => value + 1), 60_000); return () => window.clearInterval(timer) }, [])
@@ -198,8 +225,8 @@ function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any
   const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds])
   const allRows = useMemo<SessionRow[]>(() => {
     const rows: SessionRow[] = tab === 'archived'
-      ? archivedIds.map(id => ({ id, title: sessionTitleOf(byId[id], id), updatedAt: byId[id]?.updatedAt, current: id === current, subagent: isSubagentSession(byId[id]), parentId: sessionParentIdOf(byId[id]) }))
-      : Object.entries(byId).flatMap(([id, session]: any) => archivedSet.has(id) || session.blank ? [] : [{ id, title: sessionTitleOf(session), updatedAt: session.updatedAt, current: id === current, subagent: isSubagentSession(session), parentId: sessionParentIdOf(session) }])
+      ? archivedIds.map(id => sessionRow(id, byId[id], id === current))
+      : Object.entries(byId).flatMap(([id, session]: any) => archivedSet.has(id) || session.blank ? [] : [sessionRow(id, session, id === current)])
     return rows.sort((a, b) => a.current !== b.current ? (a.current ? -1 : 1) : (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
   }, [tab, archivedIds, archivedSet, byId, current])
   const rowById = useMemo(() => new Map(allRows.map(row => [row.id, row])), [allRows])
@@ -251,7 +278,11 @@ function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any
         const next = new Map(previous)
         next.delete(row.id)
         next.set(row.id, { value, fetchedAt: Date.now() })
-        while (next.size > DETAILS_CACHE_LIMIT) next.delete(next.keys().next().value)
+        while (next.size > DETAILS_CACHE_LIMIT) {
+          const oldest = next.keys().next().value
+          if (oldest === undefined) break
+          next.delete(oldest)
+        }
         return next
       })
     } catch (reason) {
@@ -380,6 +411,7 @@ function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any
     else return
     event.preventDefault()
     const next = order[index]
+    if (next === undefined) return
     switchTab(next)
     requestAnimationFrame(() => document.getElementById(`archived-tab-${next}`)?.focus())
   }
@@ -402,9 +434,9 @@ function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any
       {busy && data === undefined && <div className="as-empty"><span className="as-spinner" aria-hidden="true" /><span>{t('detailsLoading')}</span></div>}
       {detailError && <div className="as-error" role="alert">{detailError}</div>}
       {data !== undefined && <>
-        <div className="as-detail-grid"><div className="as-detail-item"><span className="as-detail-label">{t('size')}</span><strong>{formatBytes(data.sizeBytes)}</strong></div><div className="as-detail-item"><span className="as-detail-label">{t('updated')}</span><strong>{data.updatedAt ? timeLabel(data.updatedAt, now, t) : t('na')}</strong></div></div>
+        <div className="as-detail-grid"><div className="as-detail-item"><span className="as-detail-label">{t('size')}</span><strong>{formatBytes(data.sizeBytes)}</strong></div><div className="as-detail-item"><span className="as-detail-label">{t('updated')}</span><strong>{data.updatedAt ? timeLabel(data.updatedAt, now, key => t(key as Parameters<Translate>[0])) : t('na')}</strong></div></div>
         {stats && <><h3 className="as-section-title">{t('activity')}</h3><div className="as-detail-grid">{[[t('turns'),stats.turns],[t('steps'),stats.steps],[t('userMessages'),stats.userMessages],[t('assistantMessages'),stats.assistantMessages],[t('toolCalls'),stats.toolCalls],[t('attachments'),stats.attachments]].map(([label,value]) => <div className="as-detail-item" key={label}><span className="as-detail-label">{label}</span><strong>{value}</strong></div>)}</div></>}
-        {tools.length > 0 && <><h3 className="as-section-title">{t('tools')}</h3><div className="as-chips">{tools.map(([name,count]) => <span className="as-chip" key={name}>{name} ×{count}</span>)}</div></>}
+        {tools.length > 0 && <><h3 className="as-section-title">{t('tools')}</h3><div className="as-chips">{tools.map(([name,count]) => <span className="as-chip" key={name}>{name} ×{String(count)}</span>)}</div></>}
         <h3 className="as-section-title">{t('fetches')}</h3>
         {fetches.length === 0 ? <div className="as-hint">{t('noFetches')}</div> : <div className="as-fetch-list">{fetches.map((fetch: any, index: number) => <div className="as-fetch-row" key={`${index}:${fetch.tool}:${fetch.query ?? ''}`}><span className="as-fetch-tool">{fetch.tool}</span>{fetch.query && <span className="as-fetch-query" title={fetch.query}>{fetch.query}</span>}</div>)}</div>}
         <h3 className="as-section-title">{t('files')}</h3>
@@ -449,7 +481,14 @@ function ArchivedSessionsSection({ useSessions, useWorkspaces, refresh, t }: any
   </div>
 }
 
-export function apply(ctx: any): void {
+function refreshStores(ctx: ClientContext): Promise<void> {
+  type Refreshable<T> = T & { refresh?: () => Promise<void> }
+  const sessions = ctx.sessions as Refreshable<typeof ctx.sessions>
+  const workspaces = ctx.workspaces as Refreshable<typeof ctx.workspaces>
+  return Promise.all([sessions.refresh?.(), workspaces.refresh?.()]).then(() => undefined)
+}
+
+export function apply(ctx: ClientContext & { locale: LocaleRuntime }): void {
   ctx.effect(installStyles, 'dsh-conversation-manager: styles')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-conversation-manager: dictionaries')
   const t = ctx.locale.bind(NS)
@@ -460,7 +499,7 @@ export function apply(ctx: any): void {
     label: () => t('nav'),
     locale: NS,
     inject: () => ({
-      refresh: async () => { await ctx.sessions.refresh(); await ctx.workspaces.refresh() },
-    }),
-  }, (props: any) => <ArchivedSessionsSection {...props} t={t} />))
+       refresh: () => refreshStores(ctx),
+     }),
+  }, (props: SettingsSectionProps) => <ArchivedSessionsSection {...props} t={t} />))
 }

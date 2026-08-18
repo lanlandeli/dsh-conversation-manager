@@ -1,152 +1,36 @@
-// The DSH service surface is still pre-1.0 and several injected services do not
-// publish complete public types. Runtime boundaries are validated explicitly.
+// The delete and unarchive compatibility adapters intentionally probe optional
+// host extensions that are not part of the rc.7 public type surface.
 // @ts-nocheck
 
 /**
  * dsh-conversation-manager — host half.
  *
- * Self-contained Archived Sessions manager. Exposes a fenced JSON API under
- * /conversation-manager/api/* that the client Settings section calls:
- *   details { sessionId } → per-session detail snapshot
- *   delete  { sessionId } → permanently delete a session
- *
- * Detail reading is LENIENT: it prefers the strict persistence inspect, but
- * falls back to the raw artifact so a session written by a newer plugin
- * (unknown event types such as agent-teams/*) still renders counts, tool
- * usage, lineage, and produced files instead of failing.
- *
- * Deletion reuses the host primitives when present (`workspaceRegistry.deleteSession`,
- * `agentLoop.disposeAgent`, `sessionPersistence.remove`) and degrades gracefully
- * on a stock Harness where they do not exist yet.
+ * Uses rc.7 public session-query interfaces for reads and lineage. The
+ * deletion and unarchive paths retain only the explicitly planned optional
+ * host primitives because rc.7 does not expose public equivalents.
  */
 import z from "schemastery";
-import { decodeStorageRecord } from "@deepseek-ai/dsh-session";
-import { existsSync } from "node:fs";
+import { SessionId } from "@deepseek-ai/dsh-session";
 import { readdir, stat, rm } from "node:fs/promises";
-import { join, resolve, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { requireSessionId, resolveSafeArtifactContainer, resolveSafeArtifactDirectory, resolveSafeRegularFile } from "./server/path-security.js";
+import { requireSessionId, resolveLocatedArtifactContainer, resolveSafeRegularFile } from "./server/path-security.js";
 
 const name = "dsh-conversation-manager";
 // agentLoop 是可选能力（缺失时删除走 409 降级），故意不进 inject：
 // cordis 的 inject 是必需依赖声明（缺失会阻塞插件启动），而 ctx.get
 // 本身是无需声明的宽容读取，正适合这种"有则用、无则降级"的场景。
-const inject = ["webServer", "sessions", "sessionPersistence", "workspaceRegistry", "agents"];
+const inject = ["webServer", "sessions", "sessionPersistence", "sessionQuery", "workspaceRegistry", "agents"];
 /** Empty configuration schema: this plugin owns no loader config. */
 const Config = z.object({});
 
 const FETCH_TOOL_RE = /search|fetch|download|browse/i;
 
-// -- session storage layout (mirrors dsh-session-persistence-jsonl) ----------
-/** Filesystem-safe session directory key derived from the project cwd. */
-function projectKey(cwd) {
-	if (cwd.length === 0) throw new Error("cannot encode an empty project path");
-	let readable = "";
-	let separatorRun = false;
-	for (let i = 0; i < cwd.length; i++) {
-		const code = cwd.charCodeAt(i);
-		const ch = String.fromCharCode(code);
-		if (ch === "/" || ch === "\\" || ch === ":") {
-			if (!separatorRun) readable += "-";
-			separatorRun = true;
-		} else if (ch !== "~" && /^[A-Za-z0-9._-]$/.test(ch)) {
-			readable += ch;
-			separatorRun = false;
-		} else {
-			readable += "~" + code.toString(16).toUpperCase().padStart(4, "0");
-			separatorRun = false;
-		}
-	}
-	return `--${(readable.replace(/^-+/, "") || "root").slice(0, 251)}--`;
-}
-/** Filesystem-safe segment encoding for a session id. */
-function encodeSegment(raw) {
-	if (raw.length === 0) throw new Error("cannot encode an empty path segment");
-	if (raw === ".") return "~002E";
-	if (raw === "..") return "~002E~002E";
-	let out = "";
-	for (let i = 0; i < raw.length; i++) {
-		const code = raw.charCodeAt(i);
-		const ch = String.fromCharCode(code);
-		if (ch !== "~" && /^[A-Za-z0-9._-]$/.test(ch)) out += ch;
-		else out += "~" + code.toString(16).toUpperCase().padStart(4, "0");
-	}
-	return out;
-}
-/** The DSH home directory (matches `dshHomePath('sessions')`). */
-function dshHome() {
-	const raw = process.env.DSH_HOME;
-	// 空白 DSH_HOME 视为未设置（与官方 resolveDshHome 一致）；~ 前缀按用户主目录展开；结果归一为绝对路径
-	const configured = raw !== void 0 && raw.trim().length > 0 ? raw.trim() : void 0;
-	let base = configured ?? join(homedir(), ".dsh");
-	// m19: 未显式配置 DSH_HOME 时，尝试从标准 profile 插件布局反推 DSH home
-	// （<home>/profiles/<profile>/node_modules/<plugin>/lib/index.js → <home>），
-	// 若该目录下确实存在 sessions/ 则采用它，避免打开到 ~/.dsh/sessions 这种错误位置。
-	if (configured === void 0) {
-		const moduleDir = dirname(fileURLToPath(import.meta.url));
-		const candidate = resolve(moduleDir, "../../../../../");
-		if (existsSync(join(candidate, "sessions"))) base = candidate;
-	}
-	// m18: 统一按 "~" 前缀展开（覆盖 "~"、"~/"、"~\"、"~foo" 全部形态，与官方 resolveDshHome 语义对齐）
-	if (base === "~") base = homedir();
-	else if (base.startsWith("~/") || base.startsWith("~\\")) base = join(homedir(), base.slice(2));
-	else if (base.startsWith("~")) base = join(homedir(), base.slice(1));
-	return resolve(base);
-}
-/** Session root directory (`{DSH_HOME}/sessions`). */
-function sessionsRoot() {
-	return join(dshHome(), "sessions");
-}
-/** Resolve a session's storage directory from its header (project key + encoded id).
- * m6: 无 cwd 会话落在官方 `_no-cwd` 布局（与 dsh-session-persistence-jsonl 的
- * projectDir 对齐），open-folder 对这类会话不再报"没有关联的工作目录"。 */
-function sessionDirFor(meta) {
-	const cwd = typeof meta?.cwd === "string" && meta.cwd !== "" ? meta.cwd : void 0;
-	if (cwd === void 0) return join(sessionsRoot(), "_no-cwd", encodeSegment(meta.id));
-	return join(sessionsRoot(), projectKey(cwd), encodeSegment(meta.id));
-}
-
-/** Locate the exact directory whose bytes belong to one session. Persistence
- * implementations differ: some return the artifact file, others its folder. */
+/** Resolve the persistence-owned artifact through the rc.7 public contract. */
 async function resolveSessionRecordDirectory(ctx, meta) {
-	const persistence = ctx.get("sessionPersistence");
-	const candidates = [];
-	if (persistence !== void 0 && typeof persistence.artifactInfo === "function") {
-		try {
-			const artifact = await persistence.artifactInfo(meta.id);
-			for (const value of [artifact?.path, artifact?.directoryPath, artifact?.dir, artifact?.location?.path]) {
-				if (typeof value === "string" && value !== "") candidates.push(value);
-			}
-		} catch {
-			// Continue with locate / standard layout.
-		}
-	}
-	if (persistence !== void 0 && typeof persistence.locate === "function") {
-		try {
-			const location = await persistence.locate(meta);
-			if (location !== void 0 && typeof location.path === "string" && location.path !== "") {
-				candidates.push(location.path);
-			}
-		} catch {
-			// Continue with the standard layout.
-		}
-	}
-	candidates.push(sessionDirFor(meta));
-	const seen = new Set();
-	let lastError;
-	for (const candidate of candidates) {
-		const key = resolve(candidate);
-		if (seen.has(key)) continue;
-		seen.add(key);
-		try {
-			return await resolveSafeArtifactContainer(sessionsRoot(), key);
-		} catch (error) {
-			lastError = error;
-		}
-	}
-	throw lastError ?? new Error("unable to locate session record directory");
+	const location = ctx.get("sessionPersistence")?.locate(meta);
+	if (location === void 0) throw new Error("session persistence has no local artifact for this session");
+	return resolveLocatedArtifactContainer(location.path);
 }
 /** Open a directory in the OS file manager (cross-platform, fire-and-forget).
  * s7: 简单节流——同一目录 500ms 内重复打开只放行一次，避免狂点按钮弹出多个窗口。 */
@@ -205,15 +89,10 @@ async function getDirectorySize(dir) {
 	}
 	return total;
 }
-/** Locate a session header by id (live sessions first, then persisted meta). */
+/** Locate a session header through the unified rc.7 session-query corpus. */
 async function findSessionMeta(ctx, sessionId) {
-	const live = ctx.get("sessions")?.get(sessionId);
-	if (live !== void 0) return live.header;
-	const persistence = ctx.get("sessionPersistence");
-	if (persistence !== void 0 && typeof persistence.list === "function") {
-		for (const meta of await persistence.list()) if (meta.id === sessionId) return meta;
-	}
-	return void 0;
+	const records = await ctx.get("sessionQuery").listSessions();
+	return records.find((record) => record.header.id === sessionId)?.header;
 }
 
 // -- browser-trust fence (loopback + same-origin markers) --------------------
@@ -303,35 +182,6 @@ function writeFail(res, message, status = 500, code = "internal") {
 	writeJson(res, status, { ok: false, error: { code, message } });
 }
 
-/** Inspect leniently: strict read first, raw-artifact fallback that skips unknown records. */
-async function lenientInspect(persistence, sessionId, signal) {
-	try {
-		return await persistence.inspect(sessionId, signal);
-	} catch (error) {
-		if (typeof persistence.readRaw !== "function") throw error;
-		const raw = await persistence.readRaw(sessionId, signal);
-		if (raw === void 0) {
-			// 会话不存在：inspect/readRaw 双双找不到，转成明确 404（原始错误无 status 会落到 500）
-			const notFound = new Error("找不到该会话的记录（会话不存在）");
-			notFound.status = 404;
-			notFound.code = "session-not-found";
-			throw notFound;
-		}
-		const events = [];
-		for (const line of raw.content.split("\n")) {
-			if (line.trim() === "") continue;
-			try {
-				const decoded = decodeStorageRecord(JSON.parse(line));
-				if (Array.isArray(decoded)) events.push(...decoded);
-				else events.push(decoded);
-			} catch {
-				// torn tail / unreadable record — skip
-			}
-		}
-		return { meta: raw.meta, events };
-	}
-}
-
 // M8: 详情响应上限——fetches 只保留前 50 条、files 只保留前 200 条，
 // 防止单会话数万次 fetch/write 时详情 JSON 膨胀到数十 MB 卡死浏览器。
 const MAX_FETCHES = 50;
@@ -339,27 +189,17 @@ const MAX_FILES = 200;
 
 /** Build the per-session detail snapshot. */
 async function buildDetails(ctx, sessionId) {
-	const sessions = ctx.get("sessions");
-	const persistence = ctx.get("sessionPersistence");
-	const live = sessions?.get(sessionId);
-	let meta;
-	let events;
-	if (live !== void 0) {
-		meta = live.header;
-		events = [...live.events];
-	} else {
-		if (persistence === void 0) throw new Error("session persistence is not available");
-		const inspected = await lenientInspect(persistence, sessionId);
-		if (inspected.meta === void 0) {
-			// 会话不存在：明确 404（persistence.inspect 抛的原始错误无 status，会落到 500）
-			const error = new Error("找不到该会话的记录（会话不存在）");
-			error.status = 404;
-			error.code = "session-not-found";
-			throw error;
-		}
-		meta = inspected.meta;
-		events = inspected.events;
+	const records = await ctx.get("sessionQuery").listSessions();
+	const record = records.find((item) => item.header.id === sessionId);
+	if (record === void 0) {
+		const error = new Error("找不到该会话的记录（会话不存在）");
+		error.status = 404;
+		error.code = "session-not-found";
+		throw error;
 	}
+	const snapshot = await ctx.get("sessionQuery").readSession(SessionId(sessionId));
+	const meta = snapshot.session;
+	const events = snapshot.events;
 	let sizeBytes = null;
 	try {
 		const recordDirectory = await resolveSessionRecordDirectory(ctx, meta);
@@ -440,27 +280,13 @@ async function buildDetails(ctx, sessionId) {
 	// files 保留前 MAX_FILES 条；统计计数不受影响（toolCounts 仍是全量）。
 	if (stats.fetches.length > MAX_FETCHES) stats.fetches = stats.fetches.slice(0, MAX_FETCHES);
 	const files = [...fileSet.entries()].map(([path, tool]) => ({ path, tool })).slice(0, MAX_FILES);
+	const trace = await ctx.get("sessionQuery").traceSession(SessionId(sessionId));
 	const lineage = {
 		parentSessionId: typeof meta?.parentSession === "string" ? meta.parentSession : null,
-		children: []
+		children: trace.descendants
+			.filter((node) => node.session.header.origin !== "subagent")
+			.map((node) => node.session.header.id)
 	};
-	// M1: children 用 Set 去重——live 子会话同时命中 persistence.list() 与
-	// sessions.list() 两个来源时会重复出现；m2: list() 加 typeof 守卫，
-	// 换非 jsonl backend（无 list 方法）时不至于 500。
-	const childrenSet = new Set();
-	if (persistence !== void 0 && typeof persistence.list === "function") {
-		for (const h of await persistence.list()) {
-			if (h.parentSession !== sessionId) continue;
-			if (h.origin === "subagent") continue;
-			childrenSet.add(h.id);
-		}
-	}
-	for (const session of sessions?.list() ?? []) {
-		if (session.header.parentSession === sessionId && session.header.origin !== "subagent") {
-			childrenSet.add(session.id);
-		}
-	}
-	lineage.children = [...childrenSet];
 	return {
 		sessionId,
 		sizeBytes,
@@ -518,28 +344,18 @@ async function deleteSessionSingle(ctx, sessionId) {
 			// （并发 archive/unarchive/delete 跨队列交错可能残留此类条目）。
 			const state = registry.requireState();
 			if (!state.archivedSessionIds.includes(sessionId)) return;
-			const existing = new Set();
-			for (const s of sessions?.list() ?? []) existing.add(s.id);
-			if (persistence !== void 0 && typeof persistence.list === "function") {
-				for (const h of await persistence.list()) existing.add(h.id);
-			}
+			const existing = new Set((await ctx.get("sessionQuery").listSessions()).map((record) => record.header.id));
 			const archivedSessionIds = state.archivedSessionIds.filter((id) => id !== sessionId && existing.has(id));
 			await registry.setState({ ...state, archivedSessionIds });
 		});
 	}
 	if (persistence !== void 0 && typeof persistence.remove === "function") {
 		await persistence.remove(sessionId);
-	} else if (persistence !== void 0 && typeof persistence.locate === "function") {
-		// No remove primitive: locate the artifact and delete its directory.
-		// The resolved directory must stay strictly INSIDE the sessions root —
-		// a third-party or damaged backend could otherwise point the recursive
-		// rm at the whole session library (or anything above it).
-		{
-			const location = persistence.locate(meta);
-			if (location !== void 0 && typeof location.path === "string") {
-				const dir = await resolveSafeArtifactDirectory(sessionsRoot(), dirname(location.path));
-				await rm(dir, { recursive: true, force: true });
-			}
+	} else {
+		const location = persistence?.locate(meta);
+		if (location !== void 0) {
+			const dir = await resolveLocatedArtifactContainer(location.path);
+			await rm(dir, { recursive: true, force: true });
 		}
 	}
 }
@@ -768,3 +584,4 @@ function apply(ctx) {
 }
 
 export { Config, apply, inject, name };
+
